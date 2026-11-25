@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>OPTIC HUD — Field Repair Assistant</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230b0c0e'/><circle cx='16' cy='16' r='8' fill='none' stroke='%23ff5a1f' stroke-width='2.5'/><circle cx='16' cy='16' r='2' fill='%23eceef0'/></svg>"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Fullscreen Camera Viewport -->
+      <video id="camera-video" autoplay playsinline muted></video>
+      <canvas id="capture-canvas" hidden></canvas>
+
+      <!-- AR Spatial Overlay (precision contours, reticles, callouts) -->
+      <svg id="ar-overlay" class="ar-overlay" aria-hidden="true"></svg>
+      <div id="ar-labels" class="ar-labels" aria-hidden="true"></div>
+
+      <!-- Optical Viewfinder Calibration Frame -->
+      <div class="viewfinder-frame" aria-hidden="true">
+        <span class="vf-bracket tl"></span>
+        <span class="vf-bracket tr"></span>
+        <span class="vf-bracket bl"></span>
+        <span class="vf-bracket br"></span>
+        <span class="vf-cross-h"></span>
+        <span class="vf-cross-v"></span>
+      </div>
+
+      <!-- Top Instrument Strip -->
+      <header class="hud-top">
+        <div class="telemetry-group">
+          <div class="brand-mark">
+            <span class="status-led" id="status-dot"></span>
+            <span class="brand-title">OPTIC<span class="brand-slash">/</span>HUD</span>
+          </div>
+
+          <span class="divider" aria-hidden="true"></span>
+          <span class="status-text" id="status-text">Standby</span>
+
+          <div class="mic-meter" title="Microphone input level">
+            <div id="mic-level-fill" class="mic-level-fill"></div>
+          </div>
+
+          <span id="tx-counter" class="mono-readout" title="Audio frames transmitted">TX 0</span>
+          <span id="gpu-badge" class="gpu-readout" title="Local NVIDIA GPU Vision status">GPU INIT</span>
+        </div>
+
+        <div class="controls">
+          <select id="mic-select" class="mic-select" title="Select microphone">
+            <option value="">Default Mic</option>
+          </select>
+
+          <button id="btn-test-audio" class="btn-tool" title="Play audio test tone" aria-label="Test audio">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 6v4h2.8l3.7 3V3L5.3 6H2.5z" />
+              <path d="M11.8 5.2a4 4 0 0 1 0 5.6" />
+              <path d="M13.6 3.5a6.5 6.5 0 0 1 0 9" />
+            </svg>
+            <span class="btn-label">Tone</span>
+          </button>
+
+          <button id="btn-switch-cam" class="btn-tool" title="Switch camera" aria-label="Switch camera">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h1.3l1-1.5h3.4l1 1.5H12a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5v-6z" />
+              <circle cx="8" cy="8.5" r="2.2" />
+            </svg>
+            <span class="btn-label">Cam</span>
+          </button>
+
+          <button id="btn-mute" class="btn-tool" title="Toggle microphone mute" aria-label="Mute microphone" disabled>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="5.5" y="2" width="5" height="7.5" rx="2.5" />
+              <path d="M3.2 8.2a4.8 4.8 0 0 0 9.6 0" />
+              <path d="M8 13v1.8" />
+            </svg>
+            <span class="btn-label">Mic On</span>
+          </button>
+
+          <button id="btn-connect" class="btn-primary">
+            <span class="btn-dot" aria-hidden="true"></span>
+            <span class="btn-connect-label">Start Live</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Critical Warning Strip -->
+      <div id="warning-banner" class="warning-banner hidden" role="alert">
+        <svg class="warning-svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 2.2L14.2 13H1.8L8 2.2z" />
+          <path d="M8 6.5v3.2" />
+          <circle cx="8" cy="11.4" r="0.6" fill="currentColor" stroke="none" />
+        </svg>
+        <span id="warning-text"></span>
+        <button id="btn-dismiss-warning" class="btn-dismiss" aria-label="Dismiss warning">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Side Instrument Panels -->
+      <main class="hud-panels">
+        <!-- Left: Tools & Parts -->
+        <section id="tools-panel" class="hud-card hidden">
+          <div class="card-header">
+            <span class="card-title">TOOLS &amp; PARTS</span>
+            <span id="tools-count" class="card-count">00</span>
+          </div>
+          <ul id="tools-list" class="hud-list"></ul>
+        </section>
+
+        <!-- Right: Procedure Steps -->
+        <section id="steps-panel" class="hud-card hidden">
+          <div class="card-header">
+            <span id="task-title" class="card-title">PROCEDURE</span>
+            <span id="steps-progress" class="card-count">0/0</span>
+          </div>
+          <ol id="steps-list" class="hud-list steps-list"></ol>
+        </section>
+      </main>
+
+      <!-- Bottom Instrument Dock -->
+      <footer class="hud-bottom">
+        <div id="transcript-box" class="transcript-box">
+          <div class="transcript-hint">
+            Click any part in the viewport to lock <strong>SAM 2.1 Memory</strong>, enter a target below for <strong>YOLOE</strong>, or press <strong>Start Live</strong> for voice guidance.
+          </div>
+        </div>
+
+        <div class="command-stack">
+          <form id="yoloe-form" class="cmd-row">
+            <span class="cmd-tag">VISION</span>
+            <input
+              id="yoloe-input"
+              type="text"
+              placeholder="Track object by name (bottle, screwdriver, earbuds, cup...)"
+              autocomplete="off"
+            />
+            <button id="btn-yoloe-track" type="submit" class="cmd-btn">Track</button>
+            <button id="btn-yoloe-lock" type="button" class="cmd-btn cmd-btn-accent hidden" title="Lock active detection into SAM 2.1 visual memory">
+              Lock SAM2
+            </button>
+            <button id="btn-clear-ar" type="button" class="cmd-btn cmd-btn-ghost hidden" title="Clear active tracking overlay">
+              Clear
+            </button>
+          </form>
+
+          <form id="text-form" class="cmd-row">
+            <span class="cmd-tag cmd-tag-muted">PROMPT</span>
+            <input
+              id="text-input"
+              type="text"
+              placeholder="Send text instructions while live session is active..."
+              autocomplete="off"
+              disabled
+            />
+            <button id="btn-send" type="submit" class="cmd-btn" disabled>Send</button>
+          </form>
+        </div>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
